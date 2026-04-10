@@ -1,0 +1,22 @@
+{
+  "model": "EfficientNetV2-S",
+  "num_classes": 302,
+  "image_size": 384,
+  "batch_size": 16,
+  "total_images": 96635,
+  "train_images": 77308,
+  "val_images": 19327,
+  "best_epoch": 13,
+  "best_val_loss": 0.021801,
+  "best_val_acc_pct": 99.55,
+  "epochs_ran": 18,
+  "early_stopped": true,
+  "manually_stopped": false,
+  "total_time_min": 314.5,
+  "optimizer": "AdamW",
+  "scheduler": "CosineAnnealingLR(T_max=20, eta_min=1e-6)",
+  "loss": "CrossEntropyLoss (unweighted)",
+  "device": "cuda",
+  "gpu": "NVIDIA GeForce RTX 4050 Laptop GPU",
+  "torch_version": "2.5.1+cu121"
+}
