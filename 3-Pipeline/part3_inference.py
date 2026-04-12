@@ -54,6 +54,7 @@
 #   python part3_inference.py --fullset
 #   python part3_inference.py --image path/to/single.jpg
 #   python part3_inference.py --no_tree     # use best fixed params from Part 1
+#.\venv311\Scripts\python part3_inference.py --sample 50
 # =============================================================================
 
 from __future__ import annotations
