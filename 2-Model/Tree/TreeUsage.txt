@@ -1,0 +1,17 @@
+from TreeBuilder import SinhalaTree
+
+# Load the pre-built tree
+tree = SinhalaTree.load("Sinhala_Tree.json", whitelist_csv="Class_List.csv")
+
+# Look up a word → returns frequency (or 0)
+tree.search("බලන්න")
+
+# Check if a valid prefix exists
+tree.prefix_exists("බල")
+
+# Get valid next clusters from a prefix (for beam search)
+tree.get_completions("බල")        # → {"න": <node>, ...}
+
+# Or use pre-segmented cluster lists directly (faster, no re-segmentation)
+tree.walk_clusters(["බ", "ල"])
+tree.get_next_clusters(["බ", "ල", "න්"])
