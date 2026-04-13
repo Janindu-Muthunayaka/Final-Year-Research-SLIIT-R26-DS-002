@@ -397,7 +397,7 @@ def run_single_image_dynamic(img_path:     str,
         run_work = run_work,
     )
 
-    print(f"    [{run_idx}] {fname}  →  "
+    print(f"    [{run_idx}] {fname}  ->  "
           f"sk={adapted_cfg.smoothing_k} ck={adapted_cfg.close_k} "
           f"wp={adapted_cfg.window_pad} mst={adapted_cfg.multi_seg_threshold}")
 
@@ -436,8 +436,12 @@ def run_single_image_dynamic(img_path:     str,
         if os.path.exists(lp):
             os.remove(lp)
 
-        print(f"           predicted: {predicted_text or '—'}  "
-              f"CER: {cer:.1f}%  WER: {wer:.1f}%")
+        try:
+            print(f"           predicted: {predicted_text or '[empty]'}  "
+                  f"CER: {cer:.1f}%  WER: {wer:.1f}%")
+        except UnicodeEncodeError:
+            print(f"           predicted: [Sinhala text - encoding error in console]  "
+                  f"CER: {cer:.1f}%  WER: {wer:.1f}%")
 
     except Exception as exc:
         import traceback
@@ -492,6 +496,10 @@ def write_phase3_report(all_results:    list[dict],
     mean_wer   = (sum(r["wer"] for r in gt_results) / len(gt_results)
                   if gt_results else None)
 
+    t_res      = [r for r in gt_results if r.get("tess_cer") is not None]
+    t_mean_cer = (sum(r["tess_cer"] for r in t_res) / len(t_res) if t_res else None)
+    t_mean_wer = (sum(r["tess_wer"] for r in t_res) / len(t_res) if t_res else None)
+
     lines = [
         "=" * 65,
         "  PART 3 — Dynamic Inference Report  (EfficientNetV2-S)",
@@ -504,8 +512,10 @@ def write_phase3_report(all_results:    list[dict],
         "=" * 65,
         "",
         "  ── Aggregate accuracy ──────────────────────────────────────",
-        f"  Mean CER : {mean_cer:.2f}%" if mean_cer is not None else "  Mean CER : N/A",
-        f"  Mean WER : {mean_wer:.2f}%" if mean_wer is not None else "  Mean WER : N/A",
+        f"  Mean CER (Ours) : {mean_cer:.2f}%" if mean_cer is not None else "  Mean CER : N/A",
+        f"  Mean WER (Ours) : {mean_wer:.2f}%" if mean_wer is not None else "  Mean WER : N/A",
+        f"  Mean CER (Tess) : {t_mean_cer:.2f}%" if t_mean_cer is not None else "  Mean CER (Tess) : N/A",
+        f"  Mean WER (Tess) : {t_mean_wer:.2f}%" if t_mean_wer is not None else "  Mean WER (Tess) : N/A",
         "",
         "  ── Per-image summary ───────────────────────────────────────",
     ]
@@ -525,7 +535,7 @@ def write_phase3_report(all_results:    list[dict],
     report_path = os.path.join(out_dir, "run_summary.txt")
     with open(report_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
-    print(f"  run_summary.txt    → {report_path}")
+    print(f"  run_summary.txt    -> {report_path}")
 
 
 def write_phase3_csv(all_results: list[dict], out_dir: str) -> None:
@@ -543,7 +553,7 @@ def write_phase3_csv(all_results: list[dict], out_dir: str) -> None:
                                                "predicted_text", "cer", "wer"]}
             row.update(r.get("params_used", {}))
             writer.writerow(row)
-    print(f"  run_results.csv    → {csv_path}")
+    print(f"  run_results.csv    -> {csv_path}")
 
 
 def write_phase3_html_summary(all_results: list[dict], out_dir: str, elapsed: float) -> None:
@@ -551,15 +561,20 @@ def write_phase3_html_summary(all_results: list[dict], out_dir: str, elapsed: fl
     gt_res    = [r for r in all_results if r.get("ground_truth")]
     m_cer     = sum(r["cer"] for r in gt_res) / len(gt_res) if gt_res else 0.0
     m_wer     = sum(r["wer"] for r in gt_res) / len(gt_res) if gt_res else 0.0
-    t_cer     = sum(r.get("tess_cer", 100.0) for r in gt_res if r.get("tess_cer") is not None) / len([r for r in gt_res if r.get("tess_cer") is not None]) if any(r.get("tess_cer") is not None for r in gt_res) else 0.0
+
+    t_res     = [r for r in gt_res if r.get("tess_cer") is not None]
+    t_cer     = sum(r["tess_cer"] for r in t_res) / len(t_res) if t_res else 0.0
+    t_wer     = sum(r["tess_wer"] for r in t_res) / len(t_res) if t_res else 0.0
 
     rows = ""
     for r in all_results:
         cer_col = "#4ecca3" if r['cer'] < 15 else ("#f0a500" if r['cer'] < 40 else "#e94560")
+        t_text  = r.get('tess_text') or "—"
         rows += f"""
         <tr>
             <td><a href="{r['stem']}/index.html" style="color:#4ecca3">{r['fname']}</a></td>
             <td class="si">{r['predicted_text']}</td>
+            <td class="si" style="color:#888">{t_text}</td>
             <td class="si" style="color:#888">{r['ground_truth']}</td>
             <td style="color:{cer_col}; font-weight:bold">{r['cer']:.1f}%</td>
             <td style="color:#aaa">{(r.get('tess_cer') or 0.0):.1f}%</td>
@@ -587,16 +602,18 @@ def write_phase3_html_summary(all_results: list[dict], out_dir: str, elapsed: fl
         <div class="stat"><div>{len(all_results)}</div><span>Total Images</span></div>
         <div class="stat"><div>{m_cer:.1f}%</div><span>Mean CER (Ours)</span></div>
         <div class="stat"><div style="color:#aaa">{t_cer:.1f}%</div><span>Mean CER (Tess)</span></div>
+        <div class="stat"><div>{m_wer:.1f}%</div><span>Mean WER (Ours)</span></div>
+        <div class="stat"><div style="color:#aaa">{t_wer:.1f}%</div><span>Mean WER (Tess)</span></div>
         <div class="stat"><div>{elapsed:.1f}s</div><span>Total Time</span></div>
     </div>
     <table>
-        <tr><th>Image</th><th>Prediction</th><th>Ground Truth</th><th>Our CER</th><th>Tess CER</th><th>WER</th></tr>
+        <tr><th>Image</th><th>Prediction</th><th>Tess Prediction</th><th>Ground Truth</th><th>Our CER</th><th>Tess CER</th><th>WER</th></tr>
         {rows}
     </table>
     </body></html>"""
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(html)
-    print(f"  run_dashboard.html → {html_path}")
+    print(f"  run_dashboard.html -> {html_path}")
 
 
 # =============================================================================
@@ -715,11 +732,11 @@ def run_inference(input_folder:  str  = INPUT_FOLDER,
     mean_wer = sum(r["wer"] for r in gt_res) / len(gt_res) if gt_res else None
 
     print(f"\n{'='*65}")
-    print(f"  ✓  Dynamic inference complete at {_ts()}")
-    print(f"  ✓  Elapsed : {elapsed:.1f}s")
+    print(f"  [OK]  Dynamic inference complete at {_ts()}")
+    print(f"  [OK]  Elapsed : {elapsed:.1f}s")
     if mean_cer is not None:
-        print(f"  ✓  Mean CER : {mean_cer:.2f}%   Mean WER : {mean_wer:.2f}%")
-    print(f"  ✓  Results  : {out_dir}")
+        print(f"  [OK]  Mean CER : {mean_cer:.2f}%   Mean WER : {mean_wer:.2f}%")
+    print(f"  [OK]  Results  : {out_dir}")
     print(f"{'='*65}\n")
 
     return all_results

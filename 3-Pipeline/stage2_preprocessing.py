@@ -255,12 +255,12 @@ def run_stage2_preprocessing(cfg: PipelineConfig,
     Entirely CPU-bound (OpenCV + skimage).  Parallelised using S1_WORKERS
     threads.  Threads are safe because OpenCV and skimage release the GIL.
     """
-    print(f"  [Stage 2 – Preprocessing] Processing {len(all_files)} image(s) "
-          f"with {S1_WORKERS} worker thread(s) …")
+    print(f"  [Stage 2 - Preprocessing] Processing {len(all_files)} image(s) "
+          f"with {S1_WORKERS} worker thread(s)...")
     if cfg.word_spacer_enabled:
-        print(f"  [Stage 2 – Preprocessing] Word spacer : ENABLED  (gap ≥ {cfg.word_gap_px} px)")
+        print(f"  [Stage 2 - Preprocessing] Word spacer : ENABLED  (gap >= {cfg.word_gap_px} px)")
     else:
-        print(f"  [Stage 2 – Preprocessing] Word spacer : DISABLED")
+        print(f"  [Stage 2 - Preprocessing] Word spacer : DISABLED")
 
     def _worker(img_path: str) -> dict:
         fname        = os.path.basename(img_path)
@@ -294,7 +294,7 @@ def run_stage2_preprocessing(cfg: PipelineConfig,
                 failed_stems.append(fname)
 
     if failed_stems:
-        print(f"  [Stage 2 – Preprocessing] {len(failed_stems)} image(s) failed: {failed_stems}")
+        print(f"  [Stage 2 - Preprocessing] {len(failed_stems)} image(s) failed: {failed_stems}")
 
     # Preserve deterministic ordering (as_completed is unordered)
     path_order = {p: i for i, p in enumerate(all_files)}
@@ -307,5 +307,5 @@ def run_stage2_preprocessing(cfg: PipelineConfig,
     with open(image_list_path, "w", encoding="utf-8") as f:
         json.dump([m["stem"] for m in metas], f, ensure_ascii=False, indent=2)
 
-    print(f"  [Stage 2 – Preprocessing] Done — temp artefacts in: {temp_root}\n")
+    print(f"  [Stage 2 - Preprocessing] Done - temp artefacts in: {temp_root}\n")
     return metas

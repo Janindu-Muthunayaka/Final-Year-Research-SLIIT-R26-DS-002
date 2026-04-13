@@ -245,9 +245,9 @@ def run_pipeline(cfg:          PipelineConfig = None,
     if not silent:
         elapsed = time.time() - t0
         print(f"\n{'=' * 62}")
-        print(f"  ✓  Pipeline complete  —  {elapsed:.1f}s")
+        print(f"  [OK]  Pipeline complete  -  {elapsed:.1f}s")
         if gt_results:
-            print(f"  ✓  Mean CER: {mean_cer:.2f}%   Mean WER: {mean_wer:.2f}%")
+            print(f"  [OK]  Mean CER: {mean_cer:.2f}%   Mean WER: {mean_wer:.2f}%")
         print(f"{'=' * 62}\n")
 
     return _ResultList(stage4_results, mean_cer=mean_cer, mean_wer=mean_wer)

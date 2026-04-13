@@ -371,7 +371,7 @@ def _process_one(stem: str,
                                               f"{stem}_final_summary.csv"),
                         tess_text=tess_text, tess_wer=tess_wer, tess_cer=tess_cer)
 
-    print(f"    {stem}  →  {img_out}")
+    print(f"    {stem}  ->  {img_out}")
     return {
         "stem":           stem,
         "fname":          fname,
@@ -403,7 +403,7 @@ def _write_master_summary(all_results: list, results_dir: str) -> None:
                              s["ground_truth"], s["n_aksharas"],
                              s["wer"], s["cer"],
                              s.get("tess_text"), s.get("tess_wer"), s.get("tess_cer")])
-    print(f"    master_summary.csv → {out_path}")
+    print(f"    master_summary.csv -> {out_path}")
 
 
 def _write_batch_report(all_results: list,
@@ -416,45 +416,56 @@ def _write_batch_report(all_results: list,
     mean_cer   = (sum(s["cer"] for s in gt_results) / len(gt_results)
                   if gt_results else None)
 
+    tess_results = [s for s in gt_results if s.get("tess_cer") is not None]
+    tess_mean_wer = (sum(s["tess_wer"] for s in tess_results) / len(tess_results)
+                     if tess_results else None)
+    tess_mean_cer = (sum(s["tess_cer"] for s in tess_results) / len(tess_results)
+                     if tess_results else None)
+
     lines = [
-        "=" * 62,
+        "=" * 72,
         "  Sinhala OCR  —  Batch Report  (EfficientNetV2-S)",
         f"  Generated  : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"  Word spacer: {'ENABLED' if cfg.word_spacer_enabled else 'DISABLED'}",
         f"  Device     : {_DEVICE}",
-        "=" * 62,
+        "=" * 72,
         f"  Total images : {len(all_results)}",
         f"  With GT      : {len(gt_results)}",
         f"  Elapsed      : {elapsed_s:.1f}s  "
         f"({elapsed_s / max(len(all_results), 1):.1f}s/image)",
         "",
-        "  ── Parameters used ─────────────────────────────────",
+        "  ── Parameters used ──────────────────────────────────────────",
     ]
     for k, v in cfg.as_param_dict().items():
         lines.append(f"    {k:<24} = {v}")
     lines += [
         "",
-        "  ── GPU / HW config ─────────────────────────────────",
+        "  ── GPU / HW config ──────────────────────────────────────────",
         f"    INFER_BATCH_SIZE   = {INFER_BATCH_SIZE}",
         f"    S1_WORKERS         = {S1_WORKERS}",
         f"    CUDNN_BENCHMARK    = {CUDNN_BENCHMARK}",
         "",
-        "  ── Accuracy ────────────────────────────────────────",
-        f"  Mean WER : {mean_wer:.2f}%" if mean_wer is not None else "  Mean WER : N/A",
-        f"  Mean CER : {mean_cer:.2f}%" if mean_cer is not None else "  Mean CER : N/A",
+        "  ── Accuracy ──────────────────────────────────────────────────",
+        f"  Mean WER (Ours) : {mean_wer:.2f}%" if mean_wer is not None else "  Mean WER (Ours) : N/A",
+        f"  Mean CER (Ours) : {mean_cer:.2f}%" if mean_cer is not None else "  Mean CER (Ours) : N/A",
+        f"  Mean WER (Tess) : {tess_mean_wer:.2f}%" if tess_mean_wer is not None else "  Mean WER (Tess) : N/A",
+        f"  Mean CER (Tess) : {tess_mean_cer:.2f}%" if tess_mean_cer is not None else "  Mean CER (Tess) : N/A",
         "",
-        "  ── Per-image ───────────────────────────────────────",
+        "  ── Per-image ─────────────────────────────────────────────────",
+        f"  {'Filename':<42} {'WER (Ours)':>12} {'CER (Ours)':>12} {'CER (Tess)':>12}",
+        "  " + "─" * 70,
     ]
     for s in all_results:
-        wer_str = f"{s['wer']:.2f}%" if s["ground_truth"] else "N/A"
-        cer_str = f"{s['cer']:.2f}%" if s["ground_truth"] else "N/A"
-        lines.append(f"  {s['fname']:<42} WER {wer_str:>8}  CER {cer_str:>8}")
-    lines += ["", "=" * 62]
+        wer_str  = f"{s['wer']:.2f}%" if s["ground_truth"] else "N/A"
+        cer_str  = f"{s['cer']:.2f}%" if s["ground_truth"] else "N/A"
+        tcer_str = f"{s.get('tess_cer', 0.0):.2f}%" if s["ground_truth"] and s.get("tess_cer") is not None else "N/A"
+        lines.append(f"  {s['fname']:<42} {wer_str:>12} {cer_str:>12} {tcer_str:>12}")
+    lines += ["", "=" * 72]
 
     out_path = os.path.join(results_dir, "batch_report.txt")
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
-    print(f"    batch_report.txt → {out_path}")
+    print(f"    batch_report.txt -> {out_path}")
 
 # =============================================================================
 # RUN STAGE 5 — REPORTING
@@ -470,7 +481,7 @@ def run_stage5_reporting(cfg: PipelineConfig,
     results_dir = os.path.join(work_root, "results")
     os.makedirs(results_dir, exist_ok=True)
 
-    print(f"  [Stage 5 – Reporting] Building results for {len(stems)} image(s) …\n")
+    print(f"  [Stage 5 - Reporting] Building results for {len(stems)} image(s)...\n")
     all_results = []
     for i, stem in enumerate(stems, 1):
         print(f"    [{i}/{len(stems)}]", end=" ")
@@ -486,7 +497,7 @@ def run_stage5_reporting(cfg: PipelineConfig,
     _write_master_summary(all_results, results_dir)
     total_elapsed = elapsed_s + (_time.time() - t0)
     _write_batch_report(all_results, results_dir, total_elapsed, cfg)
-    print(f"  [Stage 5 – Reporting] Done — results in: {results_dir}\n")
+    print(f"  [Stage 5 - Reporting] Done - results in: {results_dir}\n")
     return all_results
 
 

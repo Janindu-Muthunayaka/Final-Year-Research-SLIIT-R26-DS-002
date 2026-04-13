@@ -465,7 +465,10 @@ def _process_one(stem: str,
         print(f"           aksharas : {len(char_results)} ({multi_count} multi-seg)")
         if cfg.word_spacer_enabled:
             print(f"           words    : {n_words}")
-        print(f"           predicted: {predicted_text}")
+        try:
+            print(f"           predicted: {predicted_text}")
+        except UnicodeEncodeError:
+            print(f"           predicted: [Sinhala text - encoding error in console]")
         print(f"           WER: {wer}%  CER: {cer}%")
 
         results_data = {
@@ -501,8 +504,8 @@ def run_stage3_classification(cfg: PipelineConfig,
                                device: torch.device,
                                idx_to_class: dict) -> list:
     """Classify all preprocessed images sequentially."""
-    print(f"  [Stage 3 – Classification] Word spacer : {'ENABLED' if cfg.word_spacer_enabled else 'DISABLED'}")
-    print(f"  [Stage 3 – Classification] Classifying {len(stems)} image(s) on {device} …\n")
+    print(f"  [Stage 3 - Classification] Word spacer : {'ENABLED' if cfg.word_spacer_enabled else 'DISABLED'}")
+    print(f"  [Stage 3 - Classification] Classifying {len(stems)} image(s) on {device}...\n")
 
     all_results = []
     for i, stem in enumerate(stems, 1):
@@ -521,5 +524,5 @@ def run_stage3_classification(cfg: PipelineConfig,
     if device.type == "cuda":
         torch.cuda.synchronize()
 
-    print(f"  [Stage 3 – Classification] Done.\n")
+    print(f"  [Stage 3 - Classification] Done.\n")
     return all_results
