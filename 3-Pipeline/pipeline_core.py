@@ -80,7 +80,7 @@ from stage1_config import (                             # noqa: F401
     INPUT_FOLDER, LABEL_CSV, TESSERACT_CSV, MODEL_PATH, CLASS_MAP, WORK_ROOT,
     # Parameter defaults
     P_TARGET_HEIGHT, P_SMOOTHING_K, P_CLOSE_K, P_SKELETON_DIL,
-    P_VALLEY_MIN_WIDTH, P_CHAR_CANVAS_SIZE, P_WINDOW_PAD,
+    P_VALLEY_MIN_WIDTH, P_BLOB_MIN_AREA, P_CHAR_CANVAS_SIZE, P_WINDOW_PAD,
     P_MULTI_SEG_THRESHOLD, P_WORD_SPACER_ENABLED, P_WORD_GAP_PX,
     TOP_K,
     # GPU config
@@ -100,7 +100,8 @@ from stage2_preprocessing import (                      # noqa: F401
 )
 
 from stage3_segmentation import (                     # noqa: F401
-    _find_valley_segments, _find_word_groups,
+    _find_valley_segments, _adaptive_word_groups,
+    _blob_segments, _build_fused_segments,
     _make_window_crop_np,
     run_stage3_segmentation,
 )
@@ -286,6 +287,7 @@ if __name__ == "__main__":
     ap.add_argument("--close_k",        type=int, default=P_CLOSE_K)
     ap.add_argument("--skeleton_dil",   type=int, default=P_SKELETON_DIL)
     ap.add_argument("--valley_min_width", type=int, default=P_VALLEY_MIN_WIDTH)
+    ap.add_argument("--blob_min_area",    type=int, default=P_BLOB_MIN_AREA)
     ap.add_argument("--window_pad",     type=int, default=P_WINDOW_PAD)
     ap.add_argument("--multi_seg_threshold", type=float, default=P_MULTI_SEG_THRESHOLD)
     ap.add_argument("--no_word_spacer", action="store_true")
@@ -306,6 +308,7 @@ if __name__ == "__main__":
         close_k             = args.close_k,
         skeleton_dil        = args.skeleton_dil,
         valley_min_width    = args.valley_min_width,
+        blob_min_area       = args.blob_min_area,
         window_pad          = args.window_pad,
         multi_seg_threshold = args.multi_seg_threshold,
         word_spacer_enabled = not args.no_word_spacer,

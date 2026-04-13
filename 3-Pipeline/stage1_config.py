@@ -44,7 +44,16 @@ P_SKELETON_DIL     = 1
 P_VALLEY_MIN_WIDTH = 2
 
 # =============================================================================
-# ██████████████████████  STAGE-3 CLASSIFIER PARAMETERS (TUNABLE)  ████████████
+# ██████████████████████  STAGE-3 SEGMENTATION PARAMETERS (TUNABLE)  █████████
+# =============================================================================
+
+# Minimum pixel area for a connected component to be treated as a valid blob.
+# Components smaller than this are discarded as noise.
+# Tune upward if stray ink specks are being counted as characters.
+P_BLOB_MIN_AREA = 30
+
+# =============================================================================
+# ██████████████████████  STAGE-4 CLASSIFIER PARAMETERS (TUNABLE)  ████████████
 # =============================================================================
 
 P_CHAR_CANVAS_SIZE    = 384   # ← do NOT change unless model is retrained
@@ -59,7 +68,7 @@ P_WORD_SPACER_ENABLED = True
 P_WORD_GAP_PX         = 50
 
 # =============================================================================
-# ██████████████████████  STAGE-3 MISC  ███████████████████████████████████████
+# ██████████████████████  STAGE-4 MISC  ███████████████████████████████████████
 # =============================================================================
 
 TOP_K = 5   # alternative predictions to retain — not tunable
@@ -143,7 +152,10 @@ class PipelineConfig:
     skeleton_dil:        int   = P_SKELETON_DIL
     valley_min_width:    int   = P_VALLEY_MIN_WIDTH
 
-    # Stage-3 classifier
+    # Stage-3 segmentation
+    blob_min_area:       int   = P_BLOB_MIN_AREA
+
+    # Stage-4 classifier
     char_canvas_size:    int   = P_CHAR_CANVAS_SIZE
     window_pad:          int   = P_WINDOW_PAD
     multi_seg_threshold: float = P_MULTI_SEG_THRESHOLD
@@ -159,6 +171,7 @@ class PipelineConfig:
             "close_k":             self.close_k,
             "skeleton_dil":        self.skeleton_dil,
             "valley_min_width":    self.valley_min_width,
+            "blob_min_area":       self.blob_min_area,
             "window_pad":          self.window_pad,
             "multi_seg_threshold": self.multi_seg_threshold,
             "word_spacer_enabled": self.word_spacer_enabled,
