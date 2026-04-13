@@ -26,12 +26,15 @@
 #     IN:  all_files  : list[str]       — raw image paths
 #           labels     : dict[str, str]  — {stem: ground_truth}
 #           cfg        : PipelineConfig
-#     OUT: list[dict]  — per-image metadata:
-#           { stem, fname, ground_truth, orig_path, binary_path,
-#             skel_path, segments_path, word_segments_path,
-#             temp_dir, n_segments, n_words, params }
+#     OUT: list[dict]  — metadata (stem, binary, rough skel, refined skel)
 #
-#   STAGE 3 — Classification  (stage3_classification.py)
+#   STAGE 3 — Segmentation    (stage3_segmentation.py)
+#     IN:  stems      : list[str]
+#           cfg        : PipelineConfig
+#     OUT: list[str]    — successfully segmented stems
+#           (Updates meta.json with segments_path, word_segments_path, n_segments)
+#
+#   STAGE 4 — Classification  (stage4_classification.py)
 #     IN:  stems        : list[str]         — from Stage 2 output
 #           model        : EfficientNetV2-S  — loaded once
 #           idx_to_class : dict[str, str]
@@ -92,23 +95,23 @@ from stage1_config import (                             # noqa: F401
 
 from stage2_preprocessing import (                      # noqa: F401
     _load_labels, _save_png,
-    _preprocess_sentence, _skeletonize_roi,
-    _build_sentence_skeleton, _find_valley_segments, _find_word_groups,
+    _preprocess_sentence, _build_sentence_skeleton,
     run_stage2_preprocessing,
 )
 
-from stage3_classification import (                     # noqa: F401
-    _load_model, _warmup_model,
-    _class_to_sinhala,
-    _build_full_skeleton, _make_window_crop_np,
-    _np_to_tensor_pinned, _predict_batch,
-    _greedy_segment, _annotate_word_indices,
-    _edit_distance, compute_cer, compute_wer,
-    run_stage3_classification,
+from stage3_segmentation import (                     # noqa: F401
+    _find_valley_segments, _find_word_groups,
+    _make_window_crop_np,
+    run_stage3_segmentation,
 )
 
-from stage4_tobedeclared import (                       # noqa: F401
-    run_stage4_tobedeclared,
+from stage4_classification import (                    # noqa: F401
+    _load_model, _warmup_model,
+    _class_to_sinhala,
+    _np_to_tensor_pinned, _predict_batch,
+    _greedy_segment, _annotate_word_indices,
+    compute_cer, compute_wer,
+    run_stage4_classification,
 )
 
 from stage5_reporting import (                          # noqa: F401
@@ -198,27 +201,28 @@ def run_pipeline(cfg:          PipelineConfig = None,
     stems = [m["stem"] for m in stage2_metas]
 
     # ──────────────────────────────────────────────────────────────────────────
-    # STAGE 3 — Classification
-    #   IN:  stems list, loaded model, device, idx_to_class, PipelineConfig
-    #   OUT: list[dict] — per-image results (predicted_text, cer, wer, aksharas)
+    # STAGE 3 — Segmentation (Valley Analysis & Word Grouping)
+    #   IN:  stems list, PipelineConfig, work_root
+    #   OUT: list[str] — stems successfully segmented
     # ──────────────────────────────────────────────────────────────────────────
-    stage3_results = run_stage3_classification(
+    stems_prepared = run_stage3_segmentation(
         cfg          = cfg,
         stems        = stems,
+        work_root    = work_root,
+    )
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # STAGE 4 — Classification
+    #   IN:  stems list, model, device, idx_to_class, PipelineConfig
+    #   OUT: list[dict] — per-image results (predicted_text, cer, wer, aksharas)
+    # ──────────────────────────────────────────────────────────────────────────
+    stage4_results = run_stage4_classification(
+        cfg          = cfg,
+        stems        = stems_prepared,
         work_root    = work_root,
         model        = model,
         device       = device,
         idx_to_class = idx_to_class,
-    )
-
-    # ──────────────────────────────────────────────────────────────────────────
-    # STAGE 4 — To Be Declared  (placeholder — passes through unchanged)
-    #   IN:  list[dict] — Stage 3 classification results
-    #   OUT: list[dict] — same format (refined results in future)
-    # ──────────────────────────────────────────────────────────────────────────
-    stage4_results = run_stage4_tobedeclared(
-        cfg         = cfg,
-        all_results = stage3_results,
     )
 
     # ──────────────────────────────────────────────────────────────────────────

@@ -38,7 +38,7 @@ from stage1_config import (
     PipelineConfig,
     _DEVICE, INFER_BATCH_SIZE, S1_WORKERS, CUDNN_BENCHMARK,
 )
-from stage3_classification import _class_to_sinhala
+from stage4_classification import _class_to_sinhala
 
 # =============================================================================
 # COMPOSITE PNG
