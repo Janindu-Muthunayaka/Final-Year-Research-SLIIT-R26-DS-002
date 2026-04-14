@@ -23,6 +23,7 @@ LABEL_CSV    = r"E:\Sliit\Research\Repositoryv2\Datasets\TestData\Full30k\Label_
 TESSERACT_CSV = r"E:\Sliit\Research\Repositoryv2\Datasets\TestData\Tessaract_Result_TextCleaned.csv"
 MODEL_PATH   = r"E:\Sliit\Research\Repositoryv2\Final-Year-Research-SLIIT-R26-DS-002\2-Model\final_model.pth"
 CLASS_MAP    = r"E:\Sliit\Research\Repositoryv2\Final-Year-Research-SLIIT-R26-DS-002\2-Model\class_mapping.json"
+VARIANTS_PATH = r"E:\Sliit\Research\Repositoryv2\Final-Year-Research-SLIIT-R26-DS-002\2-Model\Variants.py"
 WORK_ROOT    = r"E:\Sliit\Research\Repositoryv2\Final-Year-Research-SLIIT-R26-DS-002\3-Pipeline"
 
 # =============================================================================
@@ -159,6 +160,7 @@ class PipelineConfig:
     char_canvas_size:    int   = P_CHAR_CANVAS_SIZE
     window_pad:          int   = P_WINDOW_PAD
     multi_seg_threshold: float = P_MULTI_SEG_THRESHOLD
+    variants_path:       str   = VARIANTS_PATH
 
     # Word spacer
     word_spacer_enabled: bool  = P_WORD_SPACER_ENABLED
