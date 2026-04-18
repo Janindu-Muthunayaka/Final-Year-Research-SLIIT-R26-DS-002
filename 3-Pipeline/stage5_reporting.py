@@ -117,7 +117,8 @@ def _cards_html(aksharas: list) -> str:
 def _build_html(stem, orig_path, skel_path, composite_path,
                 aksharas, ground_truth, predicted_text,
                 wer, cer, out_path,
-                tess_text=None, tess_wer=None, tess_cer=None) -> None:
+                tess_text=None, tess_wer=None, tess_cer=None,
+                seg_debug: dict = None) -> None:
     def rel(p): return os.path.basename(p)
     pred_html   = "".join(
         f'<span class="pc" title="{ak["chosen_by"]}">{ak["predicted_char"]}</span>'
@@ -145,6 +146,9 @@ h1{{color:#e94560;font-size:20px;margin-bottom:4px}}
 .tab-content.active{{display:block}}
 .panel{{background:#16213e;border:1px solid #1a2a50;border-radius:10px;padding:16px;margin-bottom:18px}}
 .panel h2{{font-size:12px;color:#888;margin-bottom:10px;text-transform:uppercase;letter-spacing:1px}}
+.info-row{{display:flex;gap:12px;margin-bottom:12px}}
+.info-tile{{background:#0f1a30;padding:8px 14px;border-radius:6px;font-size:11px}}
+.info-tile span{{color:#4ecca3;font-weight:bold;margin-left:5px}}
 .imgs{{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start}}
 .imgs img{{max-height:90px;border-radius:4px;background:#fff;border:1px solid #333}}
 .imgs .lb{{font-size:11px;color:#666;margin-top:3px;text-align:center}}
@@ -190,6 +194,7 @@ h1{{color:#e94560;font-size:20px;margin-bottom:4px}}
 <div class="tab-bar">
   <button class="tab-btn active" onclick="showTab('final')">📄 Final Answer</button>
   <button class="tab-btn" onclick="showTab('segments')">🔬 Segment Detail</button>
+  <button class="tab-btn" onclick="showTab('seg-debug')">🛠 Seg Debug</button>
 </div>
 <div id="tab-final" class="tab-content active">
   <div class="panel"><h2>Input images</h2>
@@ -249,14 +254,87 @@ h1{{color:#e94560;font-size:20px;margin-bottom:4px}}
     <div class="grid">{cards}</div>
   </div>
 </div>
+<div id="tab-seg-debug" class="tab-content">
+  <div class="panel">
+    <h2>Detailed Segmentation Analysis</h2>
+    <div class="legend" style="margin-bottom:15px; background:#0f1a30; padding:10px; border-radius:6px; font-size:12px;">
+      <span class="leg" style="background:#9b59b6"></span> True Gaps (0px) &nbsp;&nbsp;
+      <span class="leg" style="background:#3498db"></span> Refined Valleys (Incl. 1px) &nbsp;&nbsp;
+      <span class="leg" style="background:#e67e22"></span> Blob Detection &nbsp;&nbsp;
+      <span class="leg" style="background:#2ecc71"></span> Final Fused Segments &nbsp;&nbsp;
+      <span class="leg" style="background:#e74c3c; border: 1px dashed #fff;"></span> Word Boundaries
+    </div>
+    <div class="info-row">
+      <div class="info-tile">Summary: <span>{seg_debug.get('method_summary') if seg_debug else 'N/A'}</span></div>
+      <div class="info-tile">Adaptive Word Gap: <span>{seg_debug.get('word_spacer_gap', 0) if seg_debug else 'N/A'} px</span></div>
+      <div class="info-tile">Refined Valleys: <span>{len(seg_debug.get('valley_segs', [])) if seg_debug else 0}</span></div>
+      <div class="info-tile">True Gaps (0px): <span>{len(seg_debug.get('true_valley_segs', [])) if seg_debug else 0}</span></div>
+      <div class="info-tile">Blob Segs: <span>{len(seg_debug.get('blob_segs', [])) if seg_debug else 0}</span></div>
+    </div>
+  </div>
+  <div class="panel" style="overflow-x:auto;">
+    <h2>Segmentation Overlay (Skeleton Reference)</h2>
+    <div style="position:relative; background:#000; display:inline-block; border-radius:4px;">
+      <img id="skel-ref" src="{rel(skel_path)}" style="display:block; opacity:0.3; height:220px;">
+      <canvas id="seg-canvas" style="position:absolute; top:0; left:0; width:100%; height:100%;"></canvas>
+    </div>
+  </div>
+</div>
 <script>
+const segDebugData = {json.dumps(seg_debug) if seg_debug else 'null'};
+
 function showTab(name){{
   document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
   event.target.classList.add('active');
+  if(name === 'seg-debug') initSegDebug();
 }}
-</script></body></html>"""
+
+function initSegDebug() {{
+    if(!segDebugData) return;
+    const img = document.getElementById('skel-ref');
+    const canvas = document.getElementById('seg-canvas');
+    const ctx = canvas.getContext('2d');
+    
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width  = img.clientWidth * dpr;
+    canvas.height = img.clientHeight * dpr;
+    ctx.scale(dpr, dpr);
+    
+    const scale = img.clientWidth / segDebugData.img_w;
+    
+    function drawSegs(segs, y, color, label) {{
+        if(!segs) return;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.fillStyle = color;
+        ctx.font = 'bold 9px sans-serif';
+        ctx.fillText(label, 5, y - 5);
+        segs.forEach(s => {{
+            ctx.strokeRect(s[0] * scale, y, (s[1] - s[0]) * scale, 40);
+        }});
+    }}
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawSegs(segDebugData.true_valley_segs, 10,  '#9b59b6', 'TRUE GAPS (0px)');
+    drawSegs(segDebugData.valley_segs,      60,  '#3498db', 'REFINED VALLEYS');
+    drawSegs(segDebugData.blob_segs,        110, '#e67e22', 'BLOB');
+    drawSegs(segDebugData.final_segs,       160, '#2ecc71', 'FINAL (FUSED)');
+    
+    // Draw word boundaries
+    ctx.setLineDash([5, 5]);
+    ctx.strokeStyle = '#e74c3c';
+    segDebugData.final_words.forEach(w => {{
+        ctx.strokeRect(w.x_start * scale, 5, (w.x_end - w.x_start) * scale, 210);
+    }});
+}}
+
+window.addEventListener('resize', () => {{
+    if(document.getElementById('tab-seg-debug').classList.contains('active')) initSegDebug();
+}});
+</script>
+</body></html>"""
 
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(html)
@@ -327,6 +405,12 @@ def _process_one(stem: str,
     wer            = res["wer"]
     cer            = res["cer"]
 
+    seg_debug_path = os.path.join(temp_dir, "seg_debug.json")
+    seg_debug      = None
+    if os.path.exists(seg_debug_path):
+        with open(seg_debug_path, "r", encoding="utf-8") as f:
+            seg_debug = json.load(f)
+
     tess_text = tess_data.get("text") if tess_data else None
     tess_wer  = tess_data.get("wer")  if tess_data else None
     tess_cer  = tess_data.get("cer")  if tess_data else None
@@ -358,7 +442,8 @@ def _process_one(stem: str,
                 composite_path=composite_path, aksharas=aksharas,
                 ground_truth=ground_truth, predicted_text=predicted_text,
                 wer=wer, cer=cer, out_path=html_path,
-                tess_text=tess_text, tess_wer=tess_wer, tess_cer=tess_cer)
+                tess_text=tess_text, tess_wer=tess_wer, tess_cer=tess_cer,
+                seg_debug=seg_debug)
 
     _write_segments_csv(aksharas=aksharas, ground_truth=ground_truth,
                          wer=wer, cer=cer,
@@ -523,6 +608,12 @@ def generate_flat_report(stem: str,
     with open(results_path, "r", encoding="utf-8") as f:
         res  = json.load(f)
 
+    seg_debug_path = os.path.join(temp_dir, "seg_debug.json")
+    seg_debug      = None
+    if os.path.exists(seg_debug_path):
+        with open(seg_debug_path, "r", encoding="utf-8") as f:
+            seg_debug = json.load(f)
+
     fname          = meta["fname"]
     ground_truth   = res["ground_truth"]
     predicted_text = res["predicted_text"]
@@ -568,7 +659,8 @@ def generate_flat_report(stem: str,
                 composite_path=composite_path, aksharas=aksharas,
                 ground_truth=ground_truth, predicted_text=predicted_text,
                 wer=wer, cer=cer, out_path=html_path,
-                tess_text=tess_text, tess_wer=tess_wer, tess_cer=tess_cer)
+                tess_text=tess_text, tess_wer=tess_wer, tess_cer=tess_cer,
+                seg_debug=seg_debug)
 
     # 5. Build CSVs
     _write_segments_csv(aksharas=aksharas, ground_truth=ground_truth,

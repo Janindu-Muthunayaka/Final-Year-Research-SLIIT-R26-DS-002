@@ -1,21 +1,21 @@
 # =============================================================================
-# stage4_classification.py  —  Model Loading, GPU Inference & Recognition
+# stage4_classification.py  -  Model Loading, GPU Inference & Recognition
 #
 # Handles the EfficientNetV2-S classification pipeline:
 #   batched GPU inference → variant-map recognition → word annotation → Metrics
 #
 # INPUT  (from Stage 3 - Segmentation):
-#   - stems        : list[str]             — image stems to process
-#   - work_root    : str                   — base working directory
-#   - model        : nn.Module             — loaded EfficientNetV2-S
-#   - device       : torch.device          — CUDA or CPU
-#   - idx_to_class : dict[str, str]        — {index: class_name}
-#   - cfg          : PipelineConfig        — tunable parameters
+#   - stems        : list[str]             - image stems to process
+#   - work_root    : str                   - base working directory
+#   - model        : nn.Module             - loaded EfficientNetV2-S
+#   - device       : torch.device          - CUDA or CPU
+#   - idx_to_class : dict[str, str]        - {index: class_name}
+#   - cfg          : PipelineConfig        - tunable parameters
 #
 # OUTPUT (to stage5_reporting):
-#   - list[dict]  — per-image result dicts
+#   - list[dict]  - per-image result dicts
 #
-# Recognition logic — Variant-Map Recognition (replaces greedy multi-seg):
+# Recognition logic - Variant-Map Recognition (replaces greedy multi-seg):
 # ─────────────────────────────────────────────────────────────────────────
 #   For each segment position `pos` in the sentence:
 #
@@ -40,7 +40,7 @@
 #
 #   6. Priority among validated candidates:
 #        a. If base_char itself is a non-key (already a full akshara with
-#           diacritics — i.e. NOT a bare consonant key in VARIANT_MAP):
+#           diacritics - i.e. NOT a bare consonant key in VARIANT_MAP):
 #              → HIGHEST priority; still test left/right for completeness
 #                but this standalone prediction wins if its confidence ≥
 #                all validated compound candidates.
@@ -78,7 +78,7 @@ from stage1_config import (
 from stage3_segmentation import _make_window_crop_np
 
 # =============================================================================
-# VARIANT MAP  — loaded once at import time
+# VARIANT MAP  - loaded once at import time
 # =============================================================================
 
 def _load_variant_map(variants_path: str) -> dict[str, set[str]]:
@@ -96,7 +96,7 @@ def _load_variant_map(variants_path: str) -> dict[str, set[str]]:
     return {k: set(v) for k, v in raw.items()}
 
 
-# Resolved path — users may also pass cfg.variants_path; we fall back to the
+# Resolved path - users may also pass cfg.variants_path; we fall back to the
 # sibling file "Variants.py" located next to this script.
 _VARIANTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Variants.py")
 _VARIANT_MAP: dict[str, set[str]] = {}
@@ -108,15 +108,15 @@ def _ensure_variant_map(variants_path: Optional[str] = None) -> dict[str, set[st
         path = variants_path or _VARIANTS_FILE
         if os.path.isfile(path):
             _VARIANT_MAP = _load_variant_map(path)
-            print(f"  [Stage 4 – Classification] Variant map loaded  "
-                  f"({len(_VARIANT_MAP)} base chars)  ← {path}")
+            print(f"  [Stage 4 - Classification] Variant map loaded  "
+                  f"({len(_VARIANT_MAP)} base chars)  from {path}")
         else:
-            print(f"  [Stage 4 – Classification] WARNING: Variants.py not found at {path}. "
-                  f"Variant-map recognition disabled — falling back to single-seg only.")
+            print(f"  [Stage 4 - Classification] WARNING: Variants.py not found at {path}. "
+                  f"Variant-map recognition disabled - falling back to single-seg only.")
     return _VARIANT_MAP
 
 # Characters whose bare form is itself a full akshara (already carries a
-# diacritic). These are the *values* across all VARIANT_MAP entries — i.e.
+# diacritic). These are the *values* across all VARIANT_MAP entries - i.e.
 # they are NOT keys at the top level.  We compute this set dynamically after
 # the map is loaded so it stays in sync with the actual file.
 def _build_non_key_set(vmap: dict[str, set[str]]) -> set[str]:
@@ -173,9 +173,9 @@ def _load_model(model_path: str, num_classes: int, device: torch.device):
     if isinstance(val_acc, torch.Tensor):
         val_acc = val_acc.item()
 
-    print(f"  [Stage 4 – Classification] Model     : EfficientNetV2-S  ({num_classes} classes)")
-    print(f"  [Stage 4 – Classification] Device    : {device}")
-    print(f"  [Stage 4 – Classification] Checkpoint: epoch {ckpt.get('epoch', '?')} | "
+    print(f"  [Stage 4 - Classification] Model     : EfficientNetV2-S  ({num_classes} classes)")
+    print(f"  [Stage 4 - Classification] Device    : {device}")
+    print(f"  [Stage 4 - Classification] Checkpoint: epoch {ckpt.get('epoch', '?')} | "
           f"val acc {val_acc * 100:.2f}%")
 
     if device.type == "cuda":
@@ -191,9 +191,9 @@ def _warmup_model(model, device: torch.device, num_classes: int) -> None:
                 _ = model(dummy)
         if device.type == "cuda":
             torch.cuda.synchronize()
-        print(f"  [Stage 4 – Classification] cuDNN warmup complete  (batch size = 1, {cs}×{cs})")
+        print(f"  [Stage 4 - Classification] cuDNN warmup complete  (batch size = 1, {cs}×{cs})")
     except Exception as exc:
-        print(f"  [Stage 4 – Classification] cuDNN warmup skipped: {exc}")
+        print(f"  [Stage 4 - Classification] cuDNN warmup skipped: {exc}")
 
 # =============================================================================
 # NUMPY → PINNED TENSOR
@@ -298,7 +298,7 @@ def _variant_map_segment(skeleton:    np.ndarray,
 
     Returns
     -------
-    list of akshara result dicts — same schema as the old _greedy_segment so
+    list of akshara result dicts - same schema as the old _greedy_segment so
     downstream code (_annotate_word_indices, _process_one) is unchanged.
     """
     N            = len(segments)
@@ -529,7 +529,7 @@ def _variant_map_segment(skeleton:    np.ndarray,
 def _greedy_segment(skeleton, segments, model, device, idx_to_class,
                     out_dir, cfg, word_groups=None):
     """
-    Compatibility shim — routes to the new variant-map recogniser.
+    Compatibility shim - routes to the new variant-map recogniser.
     External code that imported _greedy_segment continues to work unchanged.
     """
     vmap     = _ensure_variant_map(getattr(cfg, "variants_path", None))
@@ -678,7 +678,7 @@ def _process_one(stem: str,
     return results_data
 
 # =============================================================================
-# RUN STAGE 4 — CLASSIFICATION
+# RUN STAGE 4 - CLASSIFICATION
 # =============================================================================
 
 def run_stage4_classification(cfg: PipelineConfig,
@@ -692,7 +692,7 @@ def run_stage4_classification(cfg: PipelineConfig,
     variants_path = getattr(cfg, "variants_path", None)
     _ensure_variant_map(variants_path)
 
-    print(f"  [Stage 4 - Classification] Classifying {len(stems)} image(s) on {device}...\n")
+    print(f"  [Stage 4 - Classification] Classifying {len(stems)} image(s) on {device}...")
     all_results = []
     for i, stem in enumerate(stems, 1):
         print(f"    [{i}/{len(stems)}]", end=" ")

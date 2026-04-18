@@ -41,18 +41,9 @@ from stage1_config import PipelineConfig
 # VALLEY ANALYSIS
 # =============================================================================
 
-def _find_valley_segments(skeleton_canvas: np.ndarray,
-                           cfg: PipelineConfig) -> tuple[list, list]:
-    """
-    Find character-level segments via vertical projection valleys.
-
-    Returns
-    -------
-    segments  : list of [x_start, x_end]
-    gap_widths: list of int — pixel width of each inter-segment gap, in order.
-                len(gap_widths) == len(segments) - 1
-    """
-    projection = (skeleton_canvas > 0).sum(axis=0).astype(int)
+def _get_true_gaps(projection: np.ndarray,
+                   min_gap_w: int) -> tuple[list, list]:
+    """Find 0-pixel valleys (true gaps) for basic segmentation and word detection."""
     W          = projection.shape[0]
     in_seg     = False
     seg_start  = 0
@@ -70,18 +61,89 @@ def _find_valley_segments(skeleton_canvas: np.ndarray,
             while x < W and projection[x] == 0:
                 x += 1
             gap_w = x - gap_start
-            if gap_w >= cfg.valley_min_width:
+            if gap_w >= min_gap_w:
                 segments.append([seg_start, gap_start])
                 gap_widths.append(gap_w)
                 in_seg = False
             # else: gap too narrow — stay in current segment
         else:
             x += 1
-
     if in_seg:
         segments.append([seg_start, W])
-
     return segments, gap_widths
+
+
+def _refine_with_thin_valleys(segment: list,
+                              projection: np.ndarray,
+                              skeleton_h: int,
+                              cfg: PipelineConfig) -> list:
+    """Recursively split a segment using 1-px 'thin' columns if it's too wide."""
+    x1, x2 = segment
+    width  = x2 - x1
+    
+    # ── Measure: Shape Check (Rectangularity) ────────────────────────────────
+    # If the segment isn't significantly wider than the image line height, skip.
+    # (skeleton_h is a good proxy for expected character height)
+    if width < (skeleton_h * cfg.rect_threshold):
+        return [segment]
+
+    roi_proj = projection[x1:x2]
+    
+    # ── Search for thin valleys (height <= thin_valley_h) ────────────────────
+    # Only look in the central area to avoid splitting near existing boundaries
+    margin = cfg.min_split_dist
+    if width < margin * 2:
+        return [segment]
+        
+    search_part = roi_proj[margin:-margin]
+    if len(search_part) == 0:
+        return [segment]
+        
+    min_val = np.min(search_part)
+    # ── Measure: Bottleneck Ratio ────────────────────────────────────────────
+    # A valley is only valid if its ink height is less than X% of the line height
+    if min_val > (skeleton_h * cfg.thin_ratio):
+        return [segment]
+        
+    # Find all candidates and pick the one closest to the center
+    candidates = np.where(search_part == min_val)[0]
+    best_idx   = candidates[len(candidates) // 2]
+    split_x    = x1 + margin + best_idx
+    
+    # ── Recursive Split ──────────────────────────────────────────────────────
+    left_seg  = [x1, split_x]
+    right_seg = [split_x, x2]
+    
+    # Repeat for both halves (allows splitting multiple touching characters)
+    return (_refine_with_thin_valleys(left_seg, projection, skeleton_h, cfg) +
+            _refine_with_thin_valleys(right_seg, projection, skeleton_h, cfg))
+
+
+def _find_valley_segments(skeleton_canvas: np.ndarray,
+                           cfg: PipelineConfig) -> tuple[list, list, list]:
+    """
+    Find character-level segments via a two-pass vertical projection analysis.
+    
+    Returns
+    -------
+    refined_segments : list of [x_start, x_end] (for classification)
+    true_segments    : list of [x_start, x_end] (for word spacing - 0px gaps only)
+    gap_widths       : list of int (widths of 0px gaps)
+    """
+    projection = (skeleton_canvas > 0).sum(axis=0).astype(int)
+    H, W       = skeleton_canvas.shape
+    
+    # 1. First Pass: Find true 0-px gaps (standard valley logic)
+    true_segments, gap_widths = _get_true_gaps(projection, cfg.valley_min_width)
+    
+    # 2. Second Pass: Refine segments with 1-px thin valleys if they are 'too rectangular'
+    refined_segments = []
+    for seg in true_segments:
+        refined_segments.extend(
+            _refine_with_thin_valleys(seg, projection, H, cfg)
+        )
+        
+    return refined_segments, true_segments, gap_widths
 
 
 def _adaptive_word_groups(segments: list,
@@ -172,42 +234,27 @@ def _blob_segments(binary: np.ndarray, cfg: PipelineConfig) -> list:
     if not blobs:
         return []
 
-    # ── Iteratively merge blobs that share any vertical overlap ──────────────
-    changed = True
-    while changed:
-        changed = False
-        merged  = []
-        used    = [False] * len(blobs)
-        for i in range(len(blobs)):
-            if used[i]:
-                continue
-            bx1, by1, bx2, by2 = blobs[i]
-            for j in range(i + 1, len(blobs)):
-                if used[j]:
-                    continue
-                jx1, jy1, jx2, jy2 = blobs[j]
-                # Vertical overlap: y-ranges [by1, by2) and [jy1, jy2) intersect
-                if by1 < jy2 and jy1 < by2:
-                    bx1     = min(bx1, jx1)
-                    by1     = min(by1, jy1)
-                    bx2     = max(bx2, jx2)
-                    by2     = max(by2, jy2)
-                    used[j] = True
-                    changed = True
-            merged.append([bx1, by1, bx2, by2])
-            used[i] = True
-        blobs = merged
+    if not blobs:
+        return []
 
-    # ── Convert to [x_start, x_end], sort left-to-right ─────────────────────
-    segments = sorted([[b[0], b[2]] for b in blobs], key=lambda s: s[0])
+    # ── Convert blobs to X-intervals [x1, x2] ────────────────────────────────
+    intervals = sorted([[b[0], b[2]] for b in blobs], key=lambda s: s[0])
 
-    # ── Merge any x-overlapping segments produced by the vertical merges ─────
-    merged_segs = [segments[0]]
-    for seg in segments[1:]:
-        if seg[0] < merged_segs[-1][1]:   # x-overlap
-            merged_segs[-1][1] = max(merged_segs[-1][1], seg[1])
-        else:
-            merged_segs.append(seg)
+    # ── Merge overlapping or nearly-touching X-intervals ─────────────────────
+    # This keeps diacritics (which overlap in X) with their base characters,
+    # but keeps separate characters (which don't overlap in X) separate.
+    merged_segs = []
+    if intervals:
+        curr_x1, curr_x2 = intervals[0]
+        for i in range(1, len(intervals)):
+            next_x1, next_x2 = intervals[i]
+            # If they overlap or are extremely close (1px gap), merge them
+            if next_x1 <= curr_x2 + 1:
+                curr_x2 = max(curr_x2, next_x2)
+            else:
+                merged_segs.append([curr_x1, curr_x2])
+                curr_x1, curr_x2 = next_x1, next_x2
+        merged_segs.append([curr_x1, curr_x2])
 
     return merged_segs
 
@@ -220,7 +267,8 @@ def _clip_segs_to_word(segments: list, x_start: int, x_end: int) -> list:
     return [s for s in segments if s[0] >= x_start and s[1] <= x_end]
 
 
-def _fuse_segments_for_word(valley_segs: list, blob_segs: list) -> tuple[list, str]:
+def _fuse_segments_for_word(valley_segs: list, 
+                            blob_segs: list) -> tuple[list, str]:
     """
     Choose the better segment list for a single word's x-extent.
 
@@ -238,16 +286,10 @@ def _fuse_segments_for_word(valley_segs: list, blob_segs: list) -> tuple[list, s
 
 def _build_fused_segments(valley_segs: list,
                            valley_word_groups: list,
-                           blob_segs: list) -> tuple[list, list, str]:
+                           blob_segs: list) -> tuple[list, list, str, dict]:
     """
     Build the final per-image character segments and word groups by fusing
     valley and blob results at the word level.
-
-    Returns
-    -------
-    final_segments  : list of [x_start, x_end]   (new flat segment list)
-    final_words     : list of word-group dicts    (seg_indices updated to new flat indices)
-    method_summary  : str  e.g. "valley:2,blob:1"
     """
     final_segments = []
     final_words    = []
@@ -274,7 +316,7 @@ def _build_fused_segments(valley_segs: list,
         })
 
     summary = ",".join(f"{k}:{v}" for k, v in method_counts.items() if v > 0)
-    return final_segments, final_words, summary
+    return final_segments, final_words, summary, method_counts
 
 # =============================================================================
 # CROP HELPER  (used by Stage 4)
@@ -333,18 +375,20 @@ def _process_one(stem: str,
 
     # ─────────────────────────────────────────────────────────────────────────
     # VALLEY ANALYSIS  (segments + gap widths)
+    # refined = splits using 1px valleys; true = standard 0px gaps for words
     # ─────────────────────────────────────────────────────────────────────────
-    valley_segs, gap_widths = _find_valley_segments(skeleton_canvas, cfg)
+    valley_segs, true_valley_segs, gap_widths = _find_valley_segments(skeleton_canvas, cfg)
 
     # ─────────────────────────────────────────────────────────────────────────
-    # ADAPTIVE WORD GROUPING  (from valley gap distribution)
+    # ADAPTIVE WORD GROUPING  (from 0-px gap distribution)
     # ─────────────────────────────────────────────────────────────────────────
     threshold_used = 0.0
-    if cfg.word_spacer_enabled and valley_segs:
+    if cfg.word_spacer_enabled and true_valley_segs:
         valley_word_groups, threshold_used = _adaptive_word_groups(
-            valley_segs, gap_widths
+            true_valley_segs, gap_widths
         )
     else:
+        # Fallback word grouping matching the extent of valley_segs
         valley_word_groups = [{
             "word_index":  0,
             "seg_indices": list(range(len(valley_segs))),
@@ -358,14 +402,15 @@ def _process_one(stem: str,
     blob_segs = _blob_segments(binary, cfg)
 
     # ─────────────────────────────────────────────────────────────────────────
-    # PER-WORD FUSION
+    # PER-WORD FUSION  (two methods considered)
     # ─────────────────────────────────────────────────────────────────────────
+    method_counts = {}
     if valley_word_groups:
-        final_segs, final_words, method_summary = _build_fused_segments(
+        final_segs, final_words, method_summary, method_counts = _build_fused_segments(
             valley_segs, valley_word_groups, blob_segs
         )
     else:
-        # No valley segments at all — fall back to pure blob result
+        # No valley segments — fall back to blob result
         final_segs  = blob_segs
         final_words = [{
             "word_index":  0,
@@ -374,20 +419,58 @@ def _process_one(stem: str,
             "x_end":       blob_segs[-1][1] if blob_segs else skeleton_canvas.shape[1],
         }] if blob_segs else []
         method_summary = "blob:1"
+        method_counts  = {"blob": 1}
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # SAVE DEBUG DETAILS  (for Stage 5 Debug Tab)
+    # ─────────────────────────────────────────────────────────────────────────
+    # We save every intermediate segment list so Stage 5 can visualize them
+    # NOTE: We cast to list(map(int,...)) to avoid NumPy 'intc' serialization errors
+    debug_data = {
+        "img_w":            int(skeleton_canvas.shape[1]),
+        "valley_segs":      [[int(s[0]), int(s[1])] for s in valley_segs],
+        "true_valley_segs": [[int(s[0]), int(s[1])] for s in true_valley_segs],
+        "blob_segs":        [[int(s[0]), int(s[1])] for s in blob_segs],
+        "final_segs":       [[int(s[0]), int(s[1])] for s in final_segs],
+        "final_words":      [
+            {
+                "word_index":  int(w["word_index"]),
+                "seg_indices": [int(idx) for idx in w["seg_indices"]],
+                "x_start":     int(w["x_start"]),
+                "x_end":       int(w["x_end"])
+            } for w in final_words
+        ],
+        "word_spacer_gap":  float(threshold_used),
+        "method_summary":   method_summary,
+        "method_counts":    {k: int(v) for k, v in method_counts.items()}
+    }
+    debug_path = os.path.join(temp_dir, "seg_debug.json")
+    with open(debug_path, "w", encoding="utf-8") as f:
+        json.dump(debug_data, f, indent=2)
 
     # ─────────────────────────────────────────────────────────────────────────
     # SAVE OUTPUTS  (format unchanged — Stage 4 compatibility preserved)
     # ─────────────────────────────────────────────────────────────────────────
     segments_path = os.path.join(temp_dir, "segments.json")
     with open(segments_path, "w", encoding="utf-8") as f:
-        json.dump(final_segs, f)
+        # Cast to standard int for JSON serialization
+        json.dump([[int(s[0]), int(s[1])] for s in final_segs], f)
 
     word_segments_path = None
     n_words            = 0
     if cfg.word_spacer_enabled and final_words:
         word_segments_path = os.path.join(temp_dir, "word_segments.json")
         with open(word_segments_path, "w", encoding="utf-8") as f:
-            json.dump(final_words, f, ensure_ascii=False, indent=2)
+            # Cast all dictionary values to standard types for JSON serialization
+            serialized_words = [
+                {
+                    "word_index":  int(w["word_index"]),
+                    "seg_indices": [int(idx) for idx in w["seg_indices"]],
+                    "x_start":     int(w["x_start"]),
+                    "x_end":       int(w["x_end"])
+                } for w in final_words
+            ]
+            json.dump(serialized_words, f, ensure_ascii=False, indent=2)
         n_words = len(final_words)
 
     # ─────────────────────────────────────────────────────────────────────────

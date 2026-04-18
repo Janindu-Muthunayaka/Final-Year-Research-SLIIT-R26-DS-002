@@ -502,7 +502,7 @@ def write_phase3_report(all_results:    list[dict],
 
     lines = [
         "=" * 65,
-        "  PART 3 — Dynamic Inference Report  (EfficientNetV2-S)",
+        "  PART 3 - Dynamic Inference Report  (EfficientNetV2-S)",
         f"  Generated    : {_ts()}",
         f"  Optimizer    : {optimizer_name}",
         f"  Total images : {len(all_results)}",
@@ -640,7 +640,7 @@ def run_inference(input_folder:  str  = INPUT_FOLDER,
     t0 = time.time()
 
     print(f"\n{'='*65}")
-    print(f"  Part 3 — Dynamic Inference Pipeline  (EfficientNetV2-S)")
+    print(f"  Part 3 - Dynamic Inference Pipeline  (EfficientNetV2-S)")
     print(f"  Started : {_ts()}")
     print(f"  Use meta-tree : {'YES (multi-output RF)' if use_tree else 'NO (fixed best params)'}")
     print(f"{'='*65}\n")

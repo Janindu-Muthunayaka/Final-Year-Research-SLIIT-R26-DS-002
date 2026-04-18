@@ -51,7 +51,10 @@ P_VALLEY_MIN_WIDTH = 2
 # Minimum pixel area for a connected component to be treated as a valid blob.
 # Components smaller than this are discarded as noise.
 # Tune upward if stray ink specks are being counted as characters.
-P_BLOB_MIN_AREA = 30
+P_BLOB_MIN_AREA = 15      # Reduced from 30 to capture smaller components
+P_RECT_THRESHOLD  = 1.3    # Width/Height ratio to trigger thin-valley splitting
+P_THIN_RATIO      = 0.05   # Ink height ratio (ink/total_h) to treat as a 'thin' valley
+P_MIN_SPLIT_DIST  = 12     # Min horizontal pixels between character splits
 
 # =============================================================================
 # ██████████████████████  STAGE-4 CLASSIFIER PARAMETERS (TUNABLE)  ████████████
@@ -112,7 +115,7 @@ def _select_device() -> torch.device:
         torch.backends.cudnn.deterministic = False
         props = torch.cuda.get_device_properties(dev)
         vram_gb = props.total_memory / 1024 ** 3
-        print(f"  [Device] CUDA  — {props.name}  "
+        print(f"  [Device] CUDA  - {props.name}  "
               f"VRAM {vram_gb:.1f} GB  "
               f"cudnn.benchmark={CUDNN_BENCHMARK}")
         if vram_gb < 4.0:
@@ -120,7 +123,7 @@ def _select_device() -> torch.device:
                   f"Consider reducing INFER_BATCH_SIZE (currently {INFER_BATCH_SIZE}).")
     else:
         dev = torch.device("cpu")
-        print(f"  [Device] CPU   — CUDA not available")
+        print(f"  [Device] CPU   - CUDA not available")
     return dev
 
 
@@ -155,6 +158,9 @@ class PipelineConfig:
 
     # Stage-3 segmentation
     blob_min_area:       int   = P_BLOB_MIN_AREA
+    rect_threshold:      float = P_RECT_THRESHOLD
+    thin_ratio:          float = P_THIN_RATIO
+    min_split_dist:      int   = P_MIN_SPLIT_DIST
 
     # Stage-4 classifier
     char_canvas_size:    int   = P_CHAR_CANVAS_SIZE
@@ -174,6 +180,9 @@ class PipelineConfig:
             "skeleton_dil":        self.skeleton_dil,
             "valley_min_width":    self.valley_min_width,
             "blob_min_area":       self.blob_min_area,
+            "rect_threshold":      self.rect_threshold,
+            "thin_ratio":          self.thin_ratio,
+            "min_split_dist":      self.min_split_dist,
             "window_pad":          self.window_pad,
             "multi_seg_threshold": self.multi_seg_threshold,
             "word_spacer_enabled": self.word_spacer_enabled,
